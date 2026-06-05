@@ -1,8 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
-import json
-import os
 import re
+import os
 
 URL = 'https://www.hsnstore.com/marcas/sport-series/evowhey-protein'
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
@@ -18,22 +17,28 @@ headers = {
     'Accept-Language': 'es-ES,es;q=0.9',
 }
 response = requests.get(URL, headers=headers, timeout=10)
-soup = BeautifulSoup(response.text, 'html.parser')
+html = response.text
+soup = BeautifulSoup(html, 'html.parser')
 
 output = ""
 
-# Buscar en TODOS los scripts cualquier mención a precio o variante
-keywords = ['optionPrice', 'jsonConfig', 'jsonSwatch', 'finalPrice', '500', 'weight', 'gramo', 'option']
+# Buscar elementos con x-data que contengan precios
+for el in soup.find_all(attrs={'x-data': True}):
+    xdata = el.get('x-data', '')
+    if any(k in xdata for k in ['price', 'Price', 'option', 'variant', '500', 'weight']):
+        output += f"=== x-data en <{el.name}> ===\n{xdata[:3000]}\n\n"
 
-for i, script in enumerate(soup.find_all('script')):
-    content = script.string or ""
-    if any(k in content for k in keywords):
-        output += f"=== SCRIPT #{i} (type={script.get('type','none')}) ===\n"
-        output += content[:2000] + "\n...\n"  # Primeros 2000 chars
+# Buscar en el HTML crudo con regex: bloques JSON que contengan precios
+matches = re.findall(r'([\w]+)\s*[=:]\s*(\{[^;]{0,3000}finalPrice[^;]{0,500})', html)
+for name, block in matches[:5]:
+    output += f"=== Match '{name}' con finalPrice ===\n{block[:2000]}\n\n"
+
+# Buscar también por "500" cerca de precio
+matches2 = re.findall(r'.{100}500.{100}', html)
+for m in matches2[:5]:
+    output += f"=== Contexto '500' ===\n{m}\n\n"
 
 if not output:
-    output = "No se encontró nada relevante en ningún script.\n"
-    output += f"Total scripts en la página: {len(soup.find_all('script'))}\n"
-    output += f"Status HTTP: {response.status_code}\n"
+    output = "Nada encontrado. Enviando primeros 3000 chars del HTML:\n" + html[:3000]
 
 send_telegram(output)
