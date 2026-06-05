@@ -1,6 +1,5 @@
 import requests
 import re
-import json
 import os
 
 URL = 'https://www.hsnstore.com/marcas/sport-series/evowhey-protein'
@@ -21,19 +20,24 @@ html = response.text
 
 output = ""
 
-# Extraer el bloque completo del atributo 216 con todas sus opciones
-match = re.search(r'"216":\{.{0,5000}?\}(?=,"[0-9]+":|}\s*;)', html, re.DOTALL)
+# Buscar el array de options del atributo 216 con sus labels
+match = re.search(r'"id":"216".*?"options":\[(.{0,3000}?)\]', html, re.DOTALL)
 if match:
-    output += "=== Atributo 216 completo ===\n" + match.group(0)[:4000] + "\n\n"
+    output += "=== Options array atributo 216 ===\n[" + match.group(1) + "]\n\n"
 
-# Extraer optionPrices del initConfigurableSwatchOptions_16688
-match2 = re.search(r'initConfigurableSwatchOptions_16688[^{]*\{.{0,8000}', html, re.DOTALL)
-if match2:
-    block = match2.group(0)
-    # Buscar optionPrices dentro
-    prices_match = re.search(r'optionPrices.{0,3000}', block, re.DOTALL)
-    if prices_match:
-        output += "=== optionPrices en initConfigurableSwatchOptions_16688 ===\n" + prices_match.group(0)[:3000]
+# Buscar labels de los IDs conocidos: 3486, 1854
+for opt_id in ['3486', '1854', '6045']:
+    match2 = re.search(rf'"id":"{opt_id}","label":"([^"]+)"', html)
+    if match2:
+        output += f"Option {opt_id} = {match2.group(1)}\n"
+
+# Buscar optionPrices con los product IDs que nos interesan
+# Los productos del 3486: primer ID es 23792
+# Los productos del 1854: primer ID es 16767
+for pid in ['23792', '16767', '16734', '16759']:
+    match3 = re.search(rf'"{pid}".{{0,200}}finalPrice', html, re.DOTALL)
+    if match3:
+        output += f"\n=== Precio producto {pid} ===\n{match3.group(0)[:300]}\n"
 
 if not output:
     output = "Nada encontrado."
