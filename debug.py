@@ -1,5 +1,4 @@
 import requests
-from bs4 import BeautifulSoup
 import re
 import os
 
@@ -18,27 +17,23 @@ headers = {
 }
 response = requests.get(URL, headers=headers, timeout=10)
 html = response.text
-soup = BeautifulSoup(html, 'html.parser')
 
 output = ""
 
-# Buscar elementos con x-data que contengan precios
-for el in soup.find_all(attrs={'x-data': True}):
-    xdata = el.get('x-data', '')
-    if any(k in xdata for k in ['price', 'Price', 'option', 'variant', '500', 'weight']):
-        output += f"=== x-data en <{el.name}> ===\n{xdata[:3000]}\n\n"
+# Buscar la definición de initPrice16688 y capturar sus primeros 3000 chars
+match = re.search(r'function initPrice16688\(\).{0,5000}', html, re.DOTALL)
+if match:
+    output += "=== initPrice16688 ===\n" + match.group(0)[:4000] + "\n\n"
 
-# Buscar en el HTML crudo con regex: bloques JSON que contengan precios
-matches = re.findall(r'([\w]+)\s*[=:]\s*(\{[^;]{0,3000}finalPrice[^;]{0,500})', html)
-for name, block in matches[:5]:
-    output += f"=== Match '{name}' con finalPrice ===\n{block[:2000]}\n\n"
-
-# Buscar también por "500" cerca de precio
-matches2 = re.findall(r'.{100}500.{100}', html)
-for m in matches2[:5]:
-    output += f"=== Contexto '500' ===\n{m}\n\n"
+# Buscar también getFilteredOptions(216) — el 216 parece ser el atributo de peso
+match2 = re.search(r'getFilteredOptions.{0,3000}', html, re.DOTALL)
+if match2:
+    output += "=== getFilteredOptions ===\n" + match2.group(0)[:4000] + "\n\n"
 
 if not output:
-    output = "Nada encontrado. Enviando primeros 3000 chars del HTML:\n" + html[:3000]
+    output = "No se encontraron las funciones. Buscando '16688' en el HTML:\n"
+    matches = [m.start() for m in re.finditer('16688', html)]
+    for pos in matches[:5]:
+        output += f"\n--- Posición {pos} ---\n{html[max(0,pos-100):pos+500]}\n"
 
 send_telegram(output)
