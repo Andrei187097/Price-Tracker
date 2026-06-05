@@ -1,5 +1,6 @@
 import requests
 import re
+import json
 import os
 
 URL = 'https://www.hsnstore.com/marcas/sport-series/evowhey-protein'
@@ -20,29 +21,19 @@ html = response.text
 
 output = ""
 
-# Buscar donde se definen las opciones con sus precios por variante
-patterns = [
-    r'optionPrices.{0,2000}',
-    r'pricesByProduct.{0,2000}',
-    r'allowedProducts.{0,2000}',
-    r'spConfig.{0,2000}',
-    r'"216".{0,1000}',
-    r'attribute_id.*?216.{0,500}',
-]
-
-for pat in patterns:
-    match = re.search(pat, html, re.DOTALL)
-    if match:
-        output += f"=== Pattern: {pat[:30]} ===\n{match.group(0)[:2000]}\n\n"
-
-# Buscar también la función que inicializa las opciones del producto
-match = re.search(r'function initConfigurableOptions16688.{0,3000}', html, re.DOTALL)
+# Extraer el bloque completo del atributo 216 con todas sus opciones
+match = re.search(r'"216":\{.{0,5000}?\}(?=,"[0-9]+":|}\s*;)', html, re.DOTALL)
 if match:
-    output += "=== initConfigurableOptions16688 ===\n" + match.group(0)[:3000]
+    output += "=== Atributo 216 completo ===\n" + match.group(0)[:4000] + "\n\n"
 
-# Buscar cualquier función init relacionada con 16688
-matches = re.findall(r'function \w+16688\w*\(\)', html)
-output += "\n=== Todas las funciones con 16688 ===\n" + "\n".join(matches)
+# Extraer optionPrices del initConfigurableSwatchOptions_16688
+match2 = re.search(r'initConfigurableSwatchOptions_16688[^{]*\{.{0,8000}', html, re.DOTALL)
+if match2:
+    block = match2.group(0)
+    # Buscar optionPrices dentro
+    prices_match = re.search(r'optionPrices.{0,3000}', block, re.DOTALL)
+    if prices_match:
+        output += "=== optionPrices en initConfigurableSwatchOptions_16688 ===\n" + prices_match.group(0)[:3000]
 
 if not output:
     output = "Nada encontrado."
