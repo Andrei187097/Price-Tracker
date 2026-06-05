@@ -1,24 +1,18 @@
 import requests
-from bs4 import BeautifulSoup
-import os
+import re
 import json
+import os
 
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
 URL = 'https://www.hsnstore.com/marcas/sport-series/evowhey-protein'
 PRICE_FILE = 'last_price.json'
 
-TARGET_WEIGHTS = ['500g', '2kg']  # Ajusta si los labels exactos son distintos
-
-def deep_find(obj, key):
-    if isinstance(obj, dict):
-        if key in obj:
-            return obj[key]
-        for v in obj.values():
-            result = deep_find(v, key)
-            if result is not None:
-                return result
-    return None
+# option_id -> label (extraído del debug, no cambian salvo rediseño de HSN)
+TARGET_OPTIONS = {
+    '1854': '500g',
+    '3486': '2Kg',
+}
 
 def get_prices():
     headers = {
@@ -26,57 +20,31 @@ def get_prices():
         'Accept-Language': 'es-ES,es;q=0.9',
     }
     response = requests.get(URL, headers=headers, timeout=10)
-    soup = BeautifulSoup(response.text, 'html.parser')
+    html = response.text
 
-    json_config = None
-    swatch_config = None
-
-    for script in soup.find_all('script', type='text/x-magento-init'):
-        try:
-            data = json.loads(script.string)
-            jc = deep_find(data, 'jsonConfig')
-            if jc:
-                json_config = jc
-            sc = deep_find(data, 'jsonSwatchConfig')
-            if sc:
-                swatch_config = sc
-        except Exception:
-            pass
-
-    if not json_config or not swatch_config:
+    # Extraer el índice del atributo 216: {"opt_id": ["prod_id", ...], ...}
+    attr_match = re.search(r'"216":\{((?:"[\d]*":\[[^\]]*\],?)+)\}', html)
+    if not attr_match:
         return None
 
-    # Mapear label -> option_id desde el swatch config
-    option_to_label = {}
-    weight_attr_id = None
+    option_map = {}
+    for m in re.finditer(r'"(\d+)":\[([^\]]*)\]', attr_match.group(1)):
+        opt_id = m.group(1)
+        products = re.findall(r'"(\d+)"', m.group(2))
+        option_map[opt_id] = products
 
-    for attr_id, options in swatch_config.items():
-        if not isinstance(options, dict):
+    result = {}
+    for opt_id, label in TARGET_OPTIONS.items():
+        products = option_map.get(opt_id, [])
+        if not products:
             continue
-        for opt_id, opt_data in options.items():
-            if not isinstance(opt_data, dict):
-                continue
-            label = opt_data.get('label', '')
-            if label in TARGET_WEIGHTS:
-                weight_attr_id = attr_id
-                option_to_label[opt_id] = label
+        # Cogemos el primer producto de esa opción (todos del mismo tamaño tienen igual precio)
+        pid = products[0]
+        price_match = re.search(rf'"{pid}":\{{[^}}]*"finalPrice":\{{"amount":([\d.]+)', html)
+        if price_match:
+            result[label] = f"{float(price_match.group(1)):.2f} €"
 
-    if not weight_attr_id or not option_to_label:
-        return None
-
-    # Cruzar con precios del jsonConfig
-    option_prices = json_config.get('optionPrices', {})
-    index = json_config.get('index', {})
-
-    prices = {}
-    for product_id, attrs in index.items():
-        opt_id = attrs.get(weight_attr_id)
-        if opt_id in option_to_label and product_id in option_prices:
-            label = option_to_label[opt_id]
-            price = option_prices[product_id]['finalPrice']['amount']
-            prices[label] = f"{price:.2f} €"
-
-    return prices if prices else None
+    return result if result else None
 
 def send_telegram(message):
     url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
@@ -112,7 +80,7 @@ else:
             if old and old != price:
                 changes.append(f'• EvoWhey {label}: {old} → <b>{price}</b>')
         if changes:
-            msg = f'💰 <b>¡Cambio de precio EvoWhey!</b>\n\n' + '\n'.join(changes) + f'\n\n{URL}'
+            msg = '💰 <b>¡Cambio de precio EvoWhey!</b>\n\n' + '\n'.join(changes) + f'\n\n{URL}'
             send_telegram(msg)
 
     save_prices(current_prices)
