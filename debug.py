@@ -20,20 +20,31 @@ html = response.text
 
 output = ""
 
-# Buscar la definición de initPrice16688 y capturar sus primeros 3000 chars
-match = re.search(r'function initPrice16688\(\).{0,5000}', html, re.DOTALL)
-if match:
-    output += "=== initPrice16688 ===\n" + match.group(0)[:4000] + "\n\n"
+# Buscar donde se definen las opciones con sus precios por variante
+patterns = [
+    r'optionPrices.{0,2000}',
+    r'pricesByProduct.{0,2000}',
+    r'allowedProducts.{0,2000}',
+    r'spConfig.{0,2000}',
+    r'"216".{0,1000}',
+    r'attribute_id.*?216.{0,500}',
+]
 
-# Buscar también getFilteredOptions(216) — el 216 parece ser el atributo de peso
-match2 = re.search(r'getFilteredOptions.{0,3000}', html, re.DOTALL)
-if match2:
-    output += "=== getFilteredOptions ===\n" + match2.group(0)[:4000] + "\n\n"
+for pat in patterns:
+    match = re.search(pat, html, re.DOTALL)
+    if match:
+        output += f"=== Pattern: {pat[:30]} ===\n{match.group(0)[:2000]}\n\n"
+
+# Buscar también la función que inicializa las opciones del producto
+match = re.search(r'function initConfigurableOptions16688.{0,3000}', html, re.DOTALL)
+if match:
+    output += "=== initConfigurableOptions16688 ===\n" + match.group(0)[:3000]
+
+# Buscar cualquier función init relacionada con 16688
+matches = re.findall(r'function \w+16688\w*\(\)', html)
+output += "\n=== Todas las funciones con 16688 ===\n" + "\n".join(matches)
 
 if not output:
-    output = "No se encontraron las funciones. Buscando '16688' en el HTML:\n"
-    matches = [m.start() for m in re.finditer('16688', html)]
-    for pos in matches[:5]:
-        output += f"\n--- Posición {pos} ---\n{html[max(0,pos-100):pos+500]}\n"
+    output = "Nada encontrado."
 
 send_telegram(output)
