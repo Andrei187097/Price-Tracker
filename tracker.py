@@ -40,7 +40,7 @@ def get_prices():
             continue
         # Cogemos el primer producto de esa opción (todos del mismo tamaño tienen igual precio)
         pid = products[0]
-        price_match = re.search(rf'"{pid}":\{{[^}}]*"finalPrice":\{{"amount":([\d.]+)', html)
+        price_match = re.search(rf'"{pid}":\{{.*?"finalPrice":\{{"amount":([\d.]+)', html, re.DOTALL)
         if price_match:
             result[label] = f"{float(price_match.group(1)):.2f} €"
 
