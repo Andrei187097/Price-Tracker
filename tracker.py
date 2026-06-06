@@ -16,13 +16,14 @@ def get_price():
     response = requests.get(URL, headers=headers, timeout=10)
     soup = BeautifulSoup(response.text, 'html.parser')
 
-    price = soup.select_one('[data-price-type="finalPrice"] .price')
-    if not price:
-        price = soup.select_one('.special-price .price')
-    if not price:
-        price = soup.select_one('.price')
-
-    return price.text.strip() if price else None
+    meta = soup.find('meta', {'property': 'product:sale_price:amount'})
+    if not meta:
+        meta = soup.find('meta', {'property': 'product:price:amount'})
+    
+    if meta and meta.get('content'):
+        price = float(meta['content'])
+        return f"{price:.2f} €"
+    return None
 
 def send_telegram(message):
     url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
