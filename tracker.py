@@ -1,86 +1,54 @@
 import requests
-import re
-import json
+from bs4 import BeautifulSoup
 import os
+import json
 
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
 URL = 'https://www.hsnstore.com/marcas/sport-series/evowhey-protein'
 PRICE_FILE = 'last_price.json'
 
-# option_id -> label (extraído del debug, no cambian salvo rediseño de HSN)
-TARGET_OPTIONS = {
-    '1854': '500g',
-    '3486': '2Kg',
-}
-
-def get_prices():
+def get_price():
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept-Language': 'es-ES,es;q=0.9',
     }
     response = requests.get(URL, headers=headers, timeout=10)
-    html = response.text
+    soup = BeautifulSoup(response.text, 'html.parser')
 
-    # Extraer el índice del atributo 216: {"opt_id": ["prod_id", ...], ...}
-    attr_match = re.search(r'"216":\{((?:"[\d]*":\[[^\]]*\],?)+)\}', html)
-    if not attr_match:
-        return None
+    price = soup.select_one('[data-price-type="finalPrice"] .price')
+    if not price:
+        price = soup.select_one('.special-price .price')
+    if not price:
+        price = soup.select_one('.price')
 
-    option_map = {}
-    for m in re.finditer(r'"(\d+)":\[([^\]]*)\]', attr_match.group(1)):
-        opt_id = m.group(1)
-        products = re.findall(r'"(\d+)"', m.group(2))
-        option_map[opt_id] = products
-
-    result = {}
-    for opt_id, label in TARGET_OPTIONS.items():
-        products = option_map.get(opt_id, [])
-        if not products:
-            continue
-        # Cogemos el primer producto de esa opción (todos del mismo tamaño tienen igual precio)
-        pid = products[0]
-        price_match = re.search(rf'"{pid}":\{{"baseOldPrice".*?"finalPrice":\{{"amount":([\d.]+)', html, re.DOTALL)
-        if price_match:
-            result[label] = f"{float(price_match.group(1)):.2f} €"
-
-    return result if result else None
+    return price.text.strip() if price else None
 
 def send_telegram(message):
     url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
     requests.post(url, json={'chat_id': CHAT_ID, 'text': message, 'parse_mode': 'HTML'})
 
-def load_last_prices():
+def load_last_price():
     if os.path.exists(PRICE_FILE):
         with open(PRICE_FILE, 'r') as f:
-            return json.load(f)
-    return {}
+            return json.load(f).get('price')
+    return None
 
-def save_prices(prices):
+def save_price(price):
     with open(PRICE_FILE, 'w') as f:
-        json.dump(prices, f)
+        json.dump({'price': price}, f)
 
 # --- Lógica principal ---
-current_prices = get_prices()
+current_price = get_price()
 
-if not current_prices:
-    send_telegram('⚠️ <b>Price Tracker:</b> No se pudieron leer los precios. La web puede haber cambiado.')
+if not current_price:
+    send_telegram('⚠️ <b>Price Tracker:</b> No se pudo leer el precio. La web puede haber cambiado.')
 else:
-    last_prices = load_last_prices()
+    last_price = load_last_price()
 
-    if not last_prices:
-        msg = '✅ <b>Price Tracker iniciado</b>\n'
-        for label, price in current_prices.items():
-            msg += f'\n• EvoWhey {label}: <b>{price}</b>'
-        send_telegram(msg)
-    else:
-        changes = []
-        for label, price in current_prices.items():
-            old = last_prices.get(label)
-            if old and old != price:
-                changes.append(f'• EvoWhey {label}: {old} → <b>{price}</b>')
-        if changes:
-            msg = '💰 <b>¡Cambio de precio EvoWhey!</b>\n\n' + '\n'.join(changes) + f'\n\n{URL}'
-            send_telegram(msg)
+    if last_price is None:
+        send_telegram(f'✅ <b>Price Tracker iniciado</b>\nPrecio actual del EvoWhey: <b>{current_price}</b>')
+    elif current_price != last_price:
+        send_telegram(f'💰 <b>¡Cambio de precio!</b>\nAntes: {last_price}\nAhora: <b>{current_price}</b>\n\n{URL}')
 
-    save_prices(current_prices)
+    save_price(current_price)
